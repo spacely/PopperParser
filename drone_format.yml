@@ -1,0 +1,66 @@
+kind: pipeline
+type: docker
+name: default
+steps: 
+- name: allocate resources
+  image: getpopper/geni:v0.9.9.2
+  commands: [geni/config.py, apply]
+  secrets:
+  - GENI_FRAMEWORK
+  - GENI_PROJECT
+  - GENI_USERNAME
+  - GENI_KEY_PASSPHRASE
+  - GENI_PUBKEY_DATA
+  - GENI_CERT_DATA
+
+
+- name: generate ansible inventory
+  image: getpopper/geni:v0.9.9.2
+  runs: [python]
+  commands: [geni/config.py, get-inventory]
+- name: deploy
+  image: getpopper/ceph-ansible:v4.0.22
+  commands: [-i, ansible/hosts.yaml, ansible/deploy-mons-and-osds.yml]
+  environment:
+    ANSIBLE_LOG_PATH: ansible/ansible.log
+    ANSIBLE_SSH_CONTROL_PATH: /dev/shm/cp%%h-%%p-%%r
+    ANSIBLE_HOST_KEY_CHECKING: 'false'
+  secrets:
+  - ANSIBLE_SSH_KEY_DATA
+
+
+- name: download and extract the skyhook library
+  image: docker:19.03.3
+  runs: [sh]
+  commands:
+  - -c,
+  - |
+    docker pull uccross/skyhookdm-ceph:v14.2.9
+    docker run \
+      -v $PWD:/w \
+      -w /w \
+      --entrypoint=/bin/bash \
+      uccross/skyhookdm-ceph:v14.2.9 \
+        -c 'cp /usr/lib64/rados-classes/libcls_tabular.so ansible/files/'
+
+
+- name: deploy skyhook library
+  image: getpopper/ansible:v2.9.7
+  commands: [-i, ansible/hosts.yaml, ansible/deploy-libcls_tabular.yml]
+  environment:
+    ANSIBLE_LOG_PATH: ansible/ansible.log
+    ANSIBLE_SSH_CONTROL_PATH: /dev/shm/cp%%h-%%p-%%r
+    ANSIBLE_HOST_KEY_CHECKING: 'false'
+  secrets:
+  - ANSIBLE_SSH_KEY_DATA
+
+- name: release resources
+  image: getpopper/geni:v0.9.9.2
+  commands: [geni/config.py, destroy]
+  secrets:
+  - GENI_FRAMEWORK
+  - GENI_PROJECT
+  - GENI_USERNAME
+  - GENI_KEY_PASSPHRASE
+  - GENI_PUBKEY_DATA
+  - GENI_CERT_DATA
